@@ -20,6 +20,8 @@
   "author": "Adarsh Paul . T (24MIS0564)",
   "license": "MIT",
   "dependencies": {
+    "@aws-sdk/client-cloudwatch": "^3.1154.0",
+    "@aws-sdk/client-cloudwatch-logs": "^3.1154.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",

@@ -13,6 +13,7 @@
 const db = require('../db');
 const RiskService = require('../services/riskService');
 const NotificationService = require('../services/notificationService');
+const cloudwatchService = require('../services/cloudwatchService');
 
 /**
  * Helper to get customer's past appointment history statistics
@@ -273,6 +274,10 @@ class AppointmentController {
         message: `Your ${service_type} appointment is booked for ${apptDate} at ${apptStart}. Please confirm prior to arrival.`
       });
 
+      // 6. Record CloudWatch Metrics & Telemetry
+      cloudwatchService.recordBooking(service_type);
+      cloudwatchService.recordRiskScore(riskAssessment.score, riskAssessment.level);
+
       return res.status(201).json({
         success: true,
         message: 'Appointment successfully booked!',
@@ -346,6 +351,9 @@ class AppointmentController {
         message: `Attendance confirmed for your appointment on ${appointment.appointment_date} at ${appointment.start_time}. Thank you!`
       });
 
+      // Record CloudWatch metric
+      cloudwatchService.recordConfirmation();
+
       return res.status(200).json({
         success: true,
         message: 'Appointment confirmed successfully! No-show risk updated.',
@@ -418,6 +426,9 @@ class AppointmentController {
         type: 'CANCELLATION',
         message: `Your appointment for ${appointment.appointment_date} has been cancelled. The time slot has been returned to available inventory.`
       });
+
+      // Record CloudWatch metric
+      cloudwatchService.recordCancellation(reason);
 
       return res.status(200).json({
         success: true,

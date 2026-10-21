@@ -590,32 +590,153 @@ function executeMemoryQuery(text, params = []) {
 }
 
 /**
- * Initialize Database Layer
+ * Seed initial mock data into persistent PostgreSQL/RDS store (only if database is empty)
+ */
+async function seedPostgresStore(activePool) {
+  try {
+    const userCountRes = await activePool.query('SELECT COUNT(*) as cnt FROM users');
+    if (parseInt(userCountRes.rows[0].cnt, 10) > 0) {
+      console.log('ℹ️ [Database] PostgreSQL/RDS already contains data. Skipping initial seeding.');
+      return;
+    }
+
+    console.log('🌱 [Database] Empty PostgreSQL/RDS database detected. Seeding initial demo data...');
+    const hashAdmin = await bcrypt.hash('Admin@123', 10);
+    const hashUser = await bcrypt.hash('Password@123', 10);
+
+    // 1. Users
+    await activePool.query(`
+      INSERT INTO users (id, name, email, password_hash, role, phone)
+      VALUES 
+      (1, 'Dr. Sarah Connor (Admin)', 'admin@appointment.com', $1, 'admin', '+1-555-0100'),
+      (2, 'Alice Smith', 'alice.smith@example.com', $2, 'customer', '+1-555-0101'),
+      (3, 'John Davis', 'john.davis@example.com', $2, 'customer', '+1-555-0102'),
+      (4, 'Bob Brown', 'bob.brown@example.com', $2, 'customer', '+1-555-0103'),
+      (5, 'Adarsh Paul . T', 'adarsh@vitstudent.ac.in', $2, 'customer', '+91-9876543210')
+      ON CONFLICT (email) DO NOTHING;
+    `, [hashAdmin, hashUser]);
+
+    // Update sequence
+    await activePool.query(`SELECT setval(pg_get_serial_sequence('users', 'id'), COALESCE(MAX(id), 1)) FROM users;`);
+
+    // 2. Availability Slots
+    const today = new Date();
+    const formatDate = (offsetDays) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() + offsetDays);
+      return d.toISOString().split('T')[0];
+    };
+
+    const slotDates = [formatDate(0), formatDate(1), formatDate(2), formatDate(3)];
+    const times = [
+      { start: '09:00:00', end: '10:00:00' },
+      { start: '10:00:00', end: '11:00:00' },
+      { start: '11:30:00', end: '12:30:00' },
+      { start: '14:00:00', end: '15:00:00' },
+      { start: '15:30:00', end: '16:30:00' }
+    ];
+
+    for (const date of slotDates) {
+      for (const time of times) {
+        await activePool.query(`
+          INSERT INTO availability_slots (date, start_time, end_time, is_available)
+          VALUES ($1, $2, $3, true)
+          ON CONFLICT (date, start_time, end_time) DO NOTHING;
+        `, [date, time.start, time.end]);
+      }
+    }
+
+    // 3. Historical and upcoming appointments for demo
+    const pastPastDate = formatDate(-10);
+    const pastDate = formatDate(-5);
+    const tomorrow = formatDate(1);
+
+    // Alice past completed
+    const aliceAppt = await activePool.query(`
+      INSERT INTO appointments (user_id, service_type, appointment_date, start_time, end_time, status, confirmation_status, risk_score, risk_level, risk_reasons, notes)
+      VALUES (2, 'General Health Checkup', $1, '10:00:00', '11:00:00', 'COMPLETED', 'CONFIRMED', 0, 'LOW', '["Confirmed in advance"]'::jsonb, 'Regular checkup')
+      RETURNING id;
+    `, [pastPastDate]);
+
+    if (aliceAppt.rows.length > 0) {
+      await activePool.query(`
+        INSERT INTO feedback (appointment_id, user_id, rating, comment)
+        VALUES ($1, 2, 5, 'Punctual and very thorough consultation!')
+        ON CONFLICT (appointment_id) DO NOTHING;
+      `, [aliceAppt.rows[0].id]);
+    }
+
+    // John past no-shows
+    await activePool.query(`
+      INSERT INTO appointments (user_id, service_type, appointment_date, start_time, end_time, status, confirmation_status, risk_score, risk_level, risk_reasons, notes)
+      VALUES 
+      (3, 'Dental Consultation', $1, '14:00:00', '15:00:00', 'NO-SHOW', 'UNCONFIRMED', 45, 'MEDIUM', '["1 previous no-show on record", "Unconfirmed"]'::jsonb, 'Did not attend or notify'),
+      (3, 'Dental Cleaning', $2, '11:30:00', '12:30:00', 'NO-SHOW', 'UNCONFIRMED', 65, 'HIGH', '["2 past no-shows on record", "Attendance rate below 70%"]'::jsonb, 'No-show for second time');
+    `, [pastPastDate, pastDate]);
+
+    // John upcoming appointment (High risk demonstration)
+    await activePool.query(`
+      INSERT INTO appointments (user_id, service_type, appointment_date, start_time, end_time, status, confirmation_status, risk_score, risk_level, risk_reasons, notes)
+      VALUES (3, 'Orthodontics Review', $1, '09:00:00', '10:00:00', 'BOOKED', 'UNCONFIRMED', 85, 'HIGH', '["2 past no-shows on record", "Current appointment is not yet confirmed by customer", "Historical attendance rate is low (below 70%)"]'::jsonb, 'High risk - follow-up required');
+    `, [tomorrow]);
+
+    console.log('✅ [Database] PostgreSQL/RDS successfully seeded with initial demo data!');
+  } catch (seedErr) {
+    console.warn('⚠️ [Database] Notice during PostgreSQL seeding:', seedErr.message);
+  }
+}
+
+/**
+ * Initialize Database Layer (Dual-Mode: Amazon RDS / PostgreSQL with resilient in-memory fallback)
  */
 async function initDb() {
   const { Pool } = require('pg');
+  
+  // Build connection string supporting DATABASE_URL or individual DB_* variables
+  const dbPassword = process.env.DB_PASSWORD ? encodeURIComponent(process.env.DB_PASSWORD) : 'postgres';
   const connectionString = process.env.DATABASE_URL || 
-    `postgresql://${process.env.DB_USER || 'postgres'}:${process.env.DB_PASSWORD || 'postgres'}@${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}/${process.env.DB_NAME || 'appointment_db'}`;
+    `postgresql://${process.env.DB_USER || 'postgres'}:${dbPassword}@${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}/${process.env.DB_NAME || 'appointment_db'}`;
+
+  const isRdsHost = Boolean(process.env.DB_HOST && process.env.DB_HOST.includes('rds.amazonaws.com')) ||
+                    Boolean(process.env.DATABASE_URL && process.env.DATABASE_URL.includes('rds.amazonaws.com'));
+                    
+  const isSslRequested = process.env.DB_SSL === 'true' || 
+                         Boolean(process.env.DATABASE_URL && process.env.DATABASE_URL.includes('sslmode=require')) ||
+                         isRdsHost;
+
+  const timeoutMs = parseInt(process.env.DB_TIMEOUT_MS || (isRdsHost ? '10000' : '3000'), 10);
+
+  const poolConfig = {
+    connectionString,
+    connectionTimeoutMillis: timeoutMs,
+  };
+
+  // Configure SSL for Amazon RDS or secure remote connections
+  if (isSslRequested) {
+    poolConfig.ssl = {
+      rejectUnauthorized: false
+    };
+  }
 
   try {
-    const testPool = new Pool({
-      connectionString,
-      connectionTimeoutMillis: 2000
-    });
+    const testPool = new Pool(poolConfig);
     
     // Test connectivity
     await testPool.query('SELECT 1');
     pool = testPool;
     useFallback = false;
-    console.log('✅ [Database] Successfully connected to PostgreSQL database!');
+    console.log('✅ [Database] Successfully connected to PostgreSQL/RDS database' + (isRdsHost ? ' (Amazon RDS)' : '') + '!');
 
-    // Run schema if tables don't exist
+    // Run schema (idempotent CREATE TABLE IF NOT EXISTS)
     const schemaSql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');
     await pool.query(schemaSql);
     console.log('✅ [Database] PostgreSQL schema verified/initialized.');
+
+    // Seed database if empty
+    await seedPostgresStore(pool);
   } catch (err) {
     useFallback = true;
-    console.log('⚠️ [Database] PostgreSQL server not reachable locally (' + err.message + ').');
+    console.log('⚠️ [Database] PostgreSQL/RDS not reachable (' + err.message + ').');
     console.log('🚀 [Database] Activating fast resilient in-memory database store for local dev/testing.');
     await seedMemoryStore();
     console.log('✅ [Database] In-memory database seeded with sample users, appointments & slots.');

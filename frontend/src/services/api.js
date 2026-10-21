@@ -92,5 +92,12 @@ export const api = {
   // Background Automation
   automation: {
     runCycle: () => request('/automation/run', { method: 'POST' })
+  },
+
+  // CloudWatch & System Monitoring
+  monitoring: {
+    getHealth: () => request('/health'),
+    getMetrics: () => request('/metrics'),
+    getStream: () => request('/monitoring/stream')
   }
 };

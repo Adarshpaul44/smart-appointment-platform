@@ -1,0 +1,71 @@
+version: '3.8'
+
+# ==============================================================================
+# AWS CLOUD PRODUCTION COMPOSE CONFIGURATION (AMAZON EC2 + AMAZON RDS)
+# Project: Smart Appointment Optimization & No-Show Prevention Platform
+# ==============================================================================
+# This configuration is optimized for AWS EC2 instances connected to an
+# external Amazon RDS for PostgreSQL managed database.
+# It minimizes RAM footprint on Free Tier (t2.micro / t3.micro) by offloading
+# the database layer to Amazon RDS.
+# ==============================================================================
+
+services:
+  # 1. Node.js + Express REST API Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: appointment_backend_prod
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      JWT_SECRET: ${JWT_SECRET:-smart_appointment_jwt_prod_secret_2026}
+      JWT_EXPIRES_IN: 24h
+      # Database connection to Amazon RDS
+      DATABASE_URL: ${DATABASE_URL:-}
+      DB_HOST: ${DB_HOST:-}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-appointment_db}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      DB_SSL: ${DB_SSL:-true}
+      DB_TIMEOUT_MS: 10000
+      # Notification provider ('mock' for safe demo or 'aws' for Amazon SNS/SES)
+      NOTIFICATION_PROVIDER: ${NOTIFICATION_PROVIDER:-mock}
+      REMINDER_CHECK_INTERVAL_MINUTES: ${REMINDER_CHECK_INTERVAL_MINUTES:-5}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SNS_TOPIC_ARN: ${AWS_SNS_TOPIC_ARN:-}
+      AWS_SES_SENDER_EMAIL: ${AWS_SES_SENDER_EMAIL:-}
+    ports:
+      - "5000:5000"
+    networks:
+      - appointment_cloud_net
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # 2. React Frontend Served by Nginx (Reverse-proxying /api to Backend)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: appointment_frontend_prod
+    restart: always
+    ports:
+      - "80:80"
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - appointment_cloud_net
+
+networks:
+  appointment_cloud_net:
+    driver: bridge

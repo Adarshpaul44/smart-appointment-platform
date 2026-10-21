@@ -2,17 +2,17 @@
 -- Project: Smart Appointment Optimization & No-Show Prevention Platform
 -- Student: Adarsh Paul . T (24MIS0564)
 
--- Drop existing tables in reverse dependency order if resetting
-DROP TABLE IF EXISTS feedback CASCADE;
-DROP TABLE IF EXISTS notifications CASCADE;
-DROP TABLE IF EXISTS appointment_history CASCADE;
-DROP TABLE IF EXISTS appointments CASCADE;
-DROP TABLE IF EXISTS availability_slots CASCADE;
-DROP TABLE IF EXISTS users CASCADE;
+-- Drop existing tables (Optional manual reset - commented out to protect persistent RDS databases)
+-- DROP TABLE IF EXISTS feedback CASCADE;
+-- DROP TABLE IF EXISTS notifications CASCADE;
+-- DROP TABLE IF EXISTS appointment_history CASCADE;
+-- DROP TABLE IF EXISTS appointments CASCADE;
+-- DROP TABLE IF EXISTS availability_slots CASCADE;
+-- DROP TABLE IF EXISTS users CASCADE;
 
 -- 1. USERS TABLE
 -- Stores both Customers and Administrators with role-based access
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     email VARCHAR(150) UNIQUE NOT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE users (
 
 -- 2. AVAILABILITY_SLOTS TABLE
 -- Admin-configured time windows available for appointments
-CREATE TABLE availability_slots (
+CREATE TABLE IF NOT EXISTS availability_slots (
     id SERIAL PRIMARY KEY,
     date DATE NOT NULL,
     start_time TIME NOT NULL,
@@ -36,7 +36,7 @@ CREATE TABLE availability_slots (
 
 -- 3. APPOINTMENTS TABLE
 -- Central appointments with status tracking and explainable risk scores
-CREATE TABLE appointments (
+CREATE TABLE IF NOT EXISTS appointments (
     id SERIAL PRIMARY KEY,
     user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     slot_id INT REFERENCES availability_slots(id) ON DELETE SET NULL,
@@ -58,7 +58,7 @@ CREATE TABLE appointments (
 
 -- 4. APPOINTMENT_HISTORY TABLE
 -- Audit log of status transitions (e.g., BOOKED -> CONFIRMED, or CANCELLED)
-CREATE TABLE appointment_history (
+CREATE TABLE IF NOT EXISTS appointment_history (
     id SERIAL PRIMARY KEY,
     appointment_id INT NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
     old_status VARCHAR(20),
@@ -70,7 +70,7 @@ CREATE TABLE appointment_history (
 
 -- 5. NOTIFICATIONS TABLE
 -- Stores reminders, confirmation notices, and high-risk follow-up alerts
-CREATE TABLE notifications (
+CREATE TABLE IF NOT EXISTS notifications (
     id SERIAL PRIMARY KEY,
     user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     appointment_id INT REFERENCES appointments(id) ON DELETE SET NULL,
@@ -83,7 +83,7 @@ CREATE TABLE notifications (
 
 -- 6. FEEDBACK TABLE
 -- Post-appointment ratings and reviews from customers
-CREATE TABLE feedback (
+CREATE TABLE IF NOT EXISTS feedback (
     id SERIAL PRIMARY KEY,
     appointment_id INT UNIQUE NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
     user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -93,9 +93,9 @@ CREATE TABLE feedback (
 );
 
 -- INDEXES for Query Optimization & High-Performance Lookups
-CREATE INDEX idx_appointments_user_id ON appointments(user_id);
-CREATE INDEX idx_appointments_date ON appointments(appointment_date);
-CREATE INDEX idx_appointments_status ON appointments(status);
-CREATE INDEX idx_appointments_risk_level ON appointments(risk_level);
-CREATE INDEX idx_slots_date_availability ON availability_slots(date, is_available);
-CREATE INDEX idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_user_id ON appointments(user_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(appointment_date);
+CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
+CREATE INDEX IF NOT EXISTS idx_appointments_risk_level ON appointments(risk_level);
+CREATE INDEX IF NOT EXISTS idx_slots_date_availability ON availability_slots(date, is_available);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);

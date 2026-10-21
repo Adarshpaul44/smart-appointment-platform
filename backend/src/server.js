@@ -20,6 +20,7 @@ const analyticsRoutes = require('./routes/analyticsRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const riskRoutes = require('./routes/riskRoutes');
 const automationRoutes = require('./routes/automationRoutes');
+const monitoringRoutes = require('./routes/monitoring');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -33,17 +34,8 @@ app.use(cors({
 app.use(express.json());
 app.use(requestLogger);
 
-// Health Check Endpoint (AWS ELB & CloudWatch Ready)
-app.get('/api/health', (req, res) => {
-  res.status(200).json({
-    status: 'HEALTHY',
-    service: 'Smart Appointment Optimization & No-Show Prevention Platform API',
-    student: 'Adarsh Paul . T (24MIS0564)',
-    timestamp: new Date().toISOString(),
-    uptimeSeconds: Math.floor(process.uptime()),
-    databaseFallback: db.isFallback()
-  });
-});
+// Health Check & CloudWatch Monitoring Routes
+app.use('/api', monitoringRoutes);
 
 // Mount API Routes
 app.use('/api/auth', authRoutes);

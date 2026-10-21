@@ -5,6 +5,8 @@
  * and user context for local console and AWS CloudWatch ingestion.
  */
 
+const cloudwatchService = require('../services/cloudwatchService');
+
 function requestLogger(req, res, next) {
   const start = Date.now();
 
@@ -24,6 +26,9 @@ function requestLogger(req, res, next) {
     console.log(
       `${statusBadge} [HTTP] ${logEntry.method} ${logEntry.url} ${logEntry.status} - ${logEntry.durationMs}ms (User: ${logEntry.userId || 'anon'})`
     );
+
+    // Stream latency and error telemetry to CloudWatch
+    cloudwatchService.recordHttpRequest(req.method, req.originalUrl || req.url, res.statusCode, duration);
   });
 
   next();

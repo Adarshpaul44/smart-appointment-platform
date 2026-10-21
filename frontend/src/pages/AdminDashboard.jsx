@@ -2,17 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { 
   Users, Calendar, CheckCircle, XCircle, AlertTriangle, 
-  Clock, Plus, Search, Filter, RefreshCw, Send, Star, ShieldAlert, BarChart3, Settings
+  Clock, Plus, Search, Filter, RefreshCw, Send, Star, ShieldAlert, BarChart3, Settings,
+  Activity, Cpu, HardDrive, Terminal
 } from 'lucide-react';
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState('overview'); // overview, high-risk, appointments, availability, customers, simulator, feedback
+  const [activeTab, setActiveTab] = useState('overview'); // overview, high-risk, appointments, availability, customers, simulator, feedback, monitoring
   const [analytics, setAnalytics] = useState(null);
   const [appointments, setAppointments] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [feedback, setFeedback] = useState(null);
   const [slots, setSlots] = useState([]);
+  const [monitoring, setMonitoring] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [monitoringLoading, setMonitoringLoading] = useState(false);
   const [actionNotice, setActionNotice] = useState(null);
 
   // Filters for Appointments Table
@@ -55,9 +58,29 @@ export default function AdminDashboard() {
     }
   };
 
+  const loadMonitoring = async () => {
+    try {
+      setMonitoringLoading(true);
+      const res = await api.monitoring.getStream();
+      setMonitoring(res.data || null);
+    } catch (err) {
+      console.error('Failed to load telemetry stream:', err);
+    } finally {
+      setMonitoringLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadAllData();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'monitoring') {
+      loadMonitoring();
+      const interval = setInterval(loadMonitoring, 8000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab]);
 
   // Run Simulator on changes
   useEffect(() => {
@@ -214,6 +237,13 @@ export default function AdminDashboard() {
           onClick={() => setActiveTab('feedback')}
         >
           <Star size={18} /> Customer Feedback
+        </button>
+
+        <button 
+          className={`nav-item ${activeTab === 'monitoring' ? 'active' : ''}`}
+          onClick={() => setActiveTab('monitoring')}
+        >
+          <Activity size={18} /> CloudWatch & Health
         </button>
       </aside>
 
@@ -1007,6 +1037,221 @@ export default function AdminDashboard() {
                     </div>
                   ))
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 8: CLOUDWATCH & HEALTH MONITORING */}
+        {activeTab === 'monitoring' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a' }}>
+                  AWS CloudWatch & System Observability
+                </h2>
+                <p style={{ color: '#64748b', fontSize: '0.9rem' }}>
+                  Live infrastructure telemetry, custom metrics, and application log stream for DevOps & Agile evaluation.
+                </p>
+              </div>
+
+              <button 
+                className="btn btn-outline" 
+                onClick={loadMonitoring} 
+                disabled={monitoringLoading}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                <RefreshCw size={16} className={monitoringLoading ? 'spin' : ''} />
+                Refresh Telemetry
+              </button>
+            </div>
+
+            {/* Health & CloudWatch Status Summary */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+              <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #10b981' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>API STATUS</span>
+                  <span className="badge badge-low" style={{ fontSize: '0.75rem' }}>HEALTHY / UP</span>
+                </div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>
+                  {monitoring ? `${Math.floor(monitoring.uptimeSeconds / 60)}m ${monitoring.uptimeSeconds % 60}s` : 'Loading...'}
+                </div>
+                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Uptime since startup</span>
+              </div>
+
+              <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #3b82f6' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>AWS CLOUDWATCH</span>
+                  <span className="badge badge-medium" style={{ fontSize: '0.75rem' }}>
+                    {monitoring && monitoring.cloudwatch.enabled ? 'AWS LIVE' : 'TELEMETRY BUFFER'}
+                  </span>
+                </div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                  {monitoring ? monitoring.cloudwatch.region : 'ap-south-2'}
+                </div>
+                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                  Namespace: {monitoring ? monitoring.cloudwatch.namespace : 'SmartAppointment/Application'}
+                </span>
+              </div>
+
+              <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #8b5cf6' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>SYSTEM MEMORY</span>
+                  <Cpu size={16} color="#8b5cf6" />
+                </div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>
+                  {monitoring ? `${monitoring.system.memoryUsage.rssMb} MB` : '...'}
+                </div>
+                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                  Heap: {monitoring ? `${monitoring.system.memoryUsage.heapUsedMb} / ${monitoring.system.memoryUsage.heapTotalMb} MB` : ''}
+                </span>
+              </div>
+
+              <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #f59e0b' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>AVG LATENCY (SLO)</span>
+                  <Activity size={16} color="#f59e0b" />
+                </div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>
+                  {monitoring ? `${monitoring.counters.averageLatencyMs || 0} ms` : '...'}
+                </div>
+                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                  5xx Errors: {monitoring ? monitoring.counters.errors5xx : 0} (Target: 0)
+                </span>
+              </div>
+            </div>
+
+            {/* CloudWatch Telemetry Counters */}
+            <div className="card" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a', marginBottom: '1rem' }}>
+                📊 Operational Metric Counters
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+                <div style={{ background: '#f8fafc', padding: '0.85rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>TOTAL HTTP CALLS</div>
+                  <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#0f172a' }}>
+                    {monitoring ? monitoring.counters.totalRequests : 0}
+                  </div>
+                </div>
+                <div style={{ background: '#f8fafc', padding: '0.85rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>APPOINTMENTS BOOKED</div>
+                  <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#2563eb' }}>
+                    {monitoring ? monitoring.counters.totalBookings : 0}
+                  </div>
+                </div>
+                <div style={{ background: '#f8fafc', padding: '0.85rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>ATTENDANCE CONFIRMED</div>
+                  <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#16a34a' }}>
+                    {monitoring ? monitoring.counters.totalConfirmations : 0}
+                  </div>
+                </div>
+                <div style={{ background: '#f8fafc', padding: '0.85rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>CANCELLATIONS / RELEASED</div>
+                  <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#dc2626' }}>
+                    {monitoring ? monitoring.counters.totalCancellations : 0}
+                  </div>
+                </div>
+                <div style={{ background: '#f8fafc', padding: '0.85rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>HIGH-RISK ALERTS</div>
+                  <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#ea580c' }}>
+                    {monitoring ? monitoring.counters.highRiskFlags : 0}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Split View: Recent Metric Stream and CloudWatch Logs */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '1.5rem' }}>
+              {/* Metric Data Points */}
+              <div className="card" style={{ padding: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>
+                    📈 CloudWatch Metric Events
+                  </h3>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Latest 15 Points</span>
+                </div>
+                <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
+                  <table style={{ width: '100%', fontSize: '0.825rem', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #e2e8f0', textAlign: 'left', color: '#64748b' }}>
+                        <th style={{ padding: '0.5rem' }}>Metric Name</th>
+                        <th style={{ padding: '0.5rem' }}>Value</th>
+                        <th style={{ padding: '0.5rem' }}>Time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {monitoring && monitoring.recentMetrics && monitoring.recentMetrics.length > 0 ? (
+                        monitoring.recentMetrics.map((m, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '0.5rem', fontWeight: 600, color: '#334155' }}>{m.MetricName}</td>
+                            <td style={{ padding: '0.5rem' }}>
+                              <span style={{ fontWeight: 700, color: '#2563eb' }}>{m.Value}</span>{' '}
+                              <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{m.Unit}</span>
+                            </td>
+                            <td style={{ padding: '0.5rem', color: '#64748b', fontSize: '0.75rem' }}>
+                              {new Date(m.Timestamp).toLocaleTimeString()}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="3" style={{ padding: '1.5rem', textAlign: 'center', color: '#94a3b8' }}>
+                            No metric data points buffered yet.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* CloudWatch Application Log Stream */}
+              <div className="card" style={{ padding: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Terminal size={16} color="#0f172a" />
+                    <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>
+                      CloudWatch Log Stream
+                    </h3>
+                  </div>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>/aws/smart-appointment/backend</span>
+                </div>
+                <div style={{ 
+                  background: '#0f172a', 
+                  color: '#e2e8f0', 
+                  borderRadius: '6px', 
+                  padding: '0.85rem', 
+                  fontFamily: 'monospace', 
+                  fontSize: '0.75rem', 
+                  maxHeight: '350px', 
+                  overflowY: 'auto' 
+                }}>
+                  {monitoring && monitoring.recentLogs && monitoring.recentLogs.length > 0 ? (
+                    monitoring.recentLogs.map((log, idx) => (
+                      <div key={idx} style={{ marginBottom: '0.5rem', borderBottom: '1px solid #1e293b', paddingBottom: '0.35rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
+                          <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
+                          <span style={{ 
+                            color: log.level === 'WARN' ? '#f59e0b' : log.level === 'ERROR' ? '#ef4444' : '#10b981',
+                            fontWeight: 700 
+                          }}>
+                            [{log.level}]
+                          </span>
+                        </div>
+                        <div style={{ color: '#f8fafc', marginTop: '0.15rem' }}>{log.message}</div>
+                        {log.metadata && Object.keys(log.metadata).length > 0 && (
+                          <div style={{ color: '#64748b', fontSize: '0.7rem' }}>
+                            {JSON.stringify(log.metadata)}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ color: '#64748b', textAlign: 'center', padding: '1.5rem' }}>
+                      Awaiting incoming CloudWatch log stream...
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
